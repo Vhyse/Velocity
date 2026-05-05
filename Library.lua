@@ -1,7 +1,6 @@
--- Velocity by Vhyse | v1.3
+-- Velocity by Vhyse | v1.4
 
 local Velocity = {
-    -- Current Toggle States
     State = {
         Fly = false,
         Noclip = false,
@@ -13,7 +12,6 @@ local Velocity = {
         ModifyJump = false
     },
     
-    -- Configurable Values
     Config = {
         FlySpeed = 50,
         BhopSpeed = 50,
@@ -51,9 +49,6 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
     end
 end)
 
--- ========================================================================= --
---                            UTILITY FUNCTIONS                              --
--- ========================================================================= --
 local function GetCharacter()
     return LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
 end
@@ -69,17 +64,38 @@ end
 -- ========================================================================= --
 --                            DEATH / RESPAWN HOOK                           --
 -- ========================================================================= --
--- Automatically re-applies physics-based toggles when the player respawns
 LocalPlayer.CharacterAdded:Connect(function(newChar)
     newChar:WaitForChild("HumanoidRootPart", 5)
-    task.wait(0.2) -- Give physics a moment to initialize
+    task.wait(0.2) 
     
-    -- Re-apply states to the new character
     if Velocity.State.Noclip then Velocity:ToggleNoclip(true) end
     if Velocity.State.Fly then Velocity:ToggleFly(true) end
-    
-    -- Note: WalkSpeed and JumpHeight re-apply automatically via the Heartbeat loop below!
 end)
+
+-- ========================================================================= --
+--                            STATE MODIFIERS                                --
+-- ========================================================================= --
+
+function Velocity:ToggleSpeedModifier(state)
+    self.State.ModifySpeed = state
+    -- Revert to normal speed when turned off
+    if not state then
+        local hum = GetHumanoid()
+        if hum then hum.WalkSpeed = 16 end
+    end
+end
+
+function Velocity:ToggleJumpModifier(state)
+    self.State.ModifyJump = state
+    -- Revert to normal jump when turned off
+    if not state then
+        local hum = GetHumanoid()
+        if hum then 
+            hum.UseJumpPower = false
+            hum.JumpHeight = 50 
+        end
+    end
+end
 
 -- ========================================================================= --
 --                            ADVANCED FEATURES                              --
@@ -88,7 +104,6 @@ end)
 -- [ NOCLIP ] --
 function Velocity:ToggleNoclip(state)
     self.State.Noclip = state
-    
     if state then
         self.OriginalCollisions = {}
         for _, part in ipairs(GetCharacter():GetDescendants()) do
@@ -96,7 +111,6 @@ function Velocity:ToggleNoclip(state)
                 table.insert(self.OriginalCollisions, part)
             end
         end
-
         if self.Connections.Noclip then self.Connections.Noclip:Disconnect() end
         self.Connections.Noclip = RunService.Stepped:Connect(function()
             for _, part in ipairs(self.OriginalCollisions) do
@@ -111,12 +125,11 @@ function Velocity:ToggleNoclip(state)
     end
 end
 
--- [ FLY ] --
+-- [ FLY (Reverted to Original Math) ] --
 function Velocity:ToggleFly(state)
     self.State.Fly = state
     local hrp = GetRootPart()
-    local hum = GetHumanoid()
-    if not hrp or not hum then return end
+    if not hrp then return end
 
     if state then
         local bv = Instance.new("BodyVelocity")
@@ -125,18 +138,11 @@ function Velocity:ToggleFly(state)
         bv.Velocity = Vector3.new(0, 0, 0)
         bv.Parent = hrp
         
-        -- Disable standard physics interactions to stop the falling animation
-        hum.PlatformStand = true
-
         if self.Connections.Fly then self.Connections.Fly:Disconnect() end
         self.Connections.Fly = RunService.RenderStepped:Connect(function()
             local currentHrp = GetRootPart()
-            local currentHum = GetHumanoid()
-            if not currentHrp or not currentHum then return end
+            if not currentHrp then return end
             
-            -- Force PlatformStand continuously
-            currentHum.PlatformStand = true
-
             local moveVector = Vector3.new(0, 0, 0)
             if UserInputService:IsKeyDown(Enum.KeyCode.W) then moveVector += Camera.CFrame.LookVector end
             if UserInputService:IsKeyDown(Enum.KeyCode.S) then moveVector -= Camera.CFrame.LookVector end
@@ -153,34 +159,27 @@ function Velocity:ToggleFly(state)
     else
         if self.Connections.Fly then self.Connections.Fly:Disconnect() end
         if hrp:FindFirstChild("VelocityFly") then hrp.VelocityFly:Destroy() end
-        hum.PlatformStand = false -- Re-enable normal walking/physics
     end
 end
 
--- [ THE MASTER PHYSICS LOOP (Speed, Jump, CFrame, Bhop) ] --
+-- [ MASTER PHYSICS LOOP ] --
 Velocity.Connections.PhysicsLoop = RunService.Heartbeat:Connect(function(deltaTime)
     local hrp = GetRootPart()
     local hum = GetHumanoid()
     if not hrp or not hum then return end
 
-    -- 1. FORCE STANDARD MODIFIERS (Anti-Override)
-    if Velocity.State.ModifySpeed then
-        hum.WalkSpeed = Velocity.Config.WalkSpeed
-    end
-    
-    if Velocity.State.ModifyJump then
+    if Velocity.State.ModifySpeed then hum.WalkSpeed = Velocity.Config.WalkSpeed end
+    if Velocity.State.ModifyJump then 
         hum.UseJumpPower = false
-        hum.JumpHeight = Velocity.Config.JumpHeight
+        hum.JumpHeight = Velocity.Config.JumpHeight 
     end
 
-    -- 2. ADVANCED MOVEMENT MATH
     local moveDir = hum.MoveDirection
     local rayParams = RaycastParams.new()
     rayParams.FilterDescendantsInstances = {GetCharacter()}
     rayParams.FilterType = Enum.RaycastFilterType.Exclude
 
     if moveDir.Magnitude > 0 then
-        -- CFrame Walk
         if Velocity.State.CFrameWalk and not Velocity.State.Bhop then
             local speedDiff = Velocity.Config.CFrameSpeed - hum.WalkSpeed
             if speedDiff > 0 then
@@ -190,13 +189,11 @@ Velocity.Connections.PhysicsLoop = RunService.Heartbeat:Connect(function(deltaTi
             end
         end
 
-        -- Bunny Hop
         if Velocity.State.Bhop then
             if UserInputService:IsKeyDown(Enum.KeyCode.Space) then
                 if hum.FloorMaterial ~= Enum.Material.Air then
                     hum:ChangeState(Enum.HumanoidStateType.Jumping)
                 end
-                
                 local speedDiff = Velocity.Config.BhopSpeed - hum.WalkSpeed
                 if speedDiff > 0 then
                     local offset = moveDir * (speedDiff * deltaTime)
@@ -226,17 +223,14 @@ function Velocity:ExecuteClickAction()
         local targetCFrame = CFrame.new(hitPos + Vector3.new(0, 3, 0))
 
         if not self.State.TravelMode then
-            -- Standard Direct TP 
             hrp.CFrame = targetCFrame
         else
-            -- Travel Mode (Phases through walls)
             self.State.IsTravelling = true
             local distance = (hrp.Position - targetCFrame.Position).Magnitude
             local estimatedTime = distance / self.Config.TravelSpeed
             local maxAllowedTime = estimatedTime + 5 
             local startTime = os.clock()
             
-            -- Hook into Stepped to force Noclip while travelling
             local travelNoclip = RunService.Stepped:Connect(function()
                 for _, part in ipairs(GetCharacter():GetDescendants()) do
                     if part:IsA("BasePart") then part.CanCollide = false end
@@ -255,7 +249,6 @@ function Velocity:ExecuteClickAction()
 
                 local currentDist = (currentHrp.Position - targetCFrame.Position).Magnitude
                 
-                -- Destination Reached or Failsafe Triggered
                 if (os.clock() - startTime) > maxAllowedTime or currentDist <= 2 then
                     travelConnection:Disconnect()
                     travelNoclip:Disconnect()
@@ -263,9 +256,11 @@ function Velocity:ExecuteClickAction()
                     return
                 end
                 
-                -- Move smoothly
                 local travelDir = (targetCFrame.Position - currentHrp.Position).Unit
                 currentHrp.CFrame += travelDir * (self.Config.TravelSpeed * deltaTime)
+                
+                -- THE FIX: Kill vertical velocity (gravity) to stop stuttering
+                currentHrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
             end)
         end
     end
