@@ -1,6 +1,7 @@
--- Velocity by Vhyse | v1.5
+-- Velocity by Vhyse | v1.6
 
 local Velocity = {
+    -- Toggle States
     State = {
         Fly = false,
         Noclip = false,
@@ -8,11 +9,12 @@ local Velocity = {
         CFrameWalk = false,
         TravelMode = false,
         IsTravelling = false,
-        AbortTravel = false, -- NEW: Flag to cancel mid-travel
+        AbortTravel = false,
         ModifySpeed = false,
         ModifyJump = false
     },
     
+    -- Active Configurations
     Config = {
         FlySpeed = 50,
         BhopSpeed = 50,
@@ -22,6 +24,7 @@ local Velocity = {
         JumpHeight = 50
     },
     
+    -- Internal Memory
     Connections = {},
     Binds = {},
     OriginalCollisions = {}
@@ -50,6 +53,9 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
     end
 end)
 
+-- ========================================================================= --
+--                            UTILITY FUNCTIONS                              --
+-- ========================================================================= --
 local function GetCharacter()
     return LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
 end
@@ -67,10 +73,13 @@ end
 -- ========================================================================= --
 LocalPlayer.CharacterAdded:Connect(function(newChar)
     newChar:WaitForChild("HumanoidRootPart", 5)
-    task.wait(0.2) 
+    task.wait(0.2) -- Give physics engine a moment to load the body
     
+    -- Re-apply physics states
     if Velocity.State.Noclip then Velocity:ToggleNoclip(true) end
     if Velocity.State.Fly then Velocity:ToggleFly(true) end
+    
+    -- Speed and Jump are handled natively by the Heartbeat loop
 end)
 
 -- ========================================================================= --
@@ -89,8 +98,10 @@ function Velocity:ToggleJumpModifier(state)
     if not state then
         local hum = GetHumanoid()
         if hum then 
-            hum.UseJumpPower = false
-            hum.JumpHeight = 50 
+            -- Revert to Standard Roblox Vanilla Defaults
+            hum.UseJumpPower = true
+            hum.JumpPower = 50 
+            hum.JumpHeight = 7.2 
         end
     end
 end
@@ -166,6 +177,7 @@ Velocity.Connections.PhysicsLoop = RunService.Heartbeat:Connect(function(deltaTi
     local hum = GetHumanoid()
     if not hrp or not hum then return end
 
+    -- Enforce standard modifiers against game anti-cheats
     if Velocity.State.ModifySpeed then hum.WalkSpeed = Velocity.Config.WalkSpeed end
     if Velocity.State.ModifyJump then 
         hum.UseJumpPower = false
@@ -178,6 +190,7 @@ Velocity.Connections.PhysicsLoop = RunService.Heartbeat:Connect(function(deltaTi
     rayParams.FilterType = Enum.RaycastFilterType.Exclude
 
     if moveDir.Magnitude > 0 then
+        -- CFrame Walk Bypass
         if Velocity.State.CFrameWalk and not Velocity.State.Bhop then
             local speedDiff = Velocity.Config.CFrameSpeed - hum.WalkSpeed
             if speedDiff > 0 then
@@ -187,6 +200,7 @@ Velocity.Connections.PhysicsLoop = RunService.Heartbeat:Connect(function(deltaTi
             end
         end
 
+        -- Bunny Hop
         if Velocity.State.Bhop then
             if UserInputService:IsKeyDown(Enum.KeyCode.Space) then
                 if hum.FloorMaterial ~= Enum.Material.Air then
@@ -208,7 +222,7 @@ function Velocity:ExecuteClickAction()
     local hrp = GetRootPart()
     if not hrp then return end
 
-    -- NEW: Abort Travel if the user presses the keybind while already travelling
+    -- Abort Travel if user presses bind mid-flight
     if self.State.IsTravelling then 
         self.State.AbortTravel = true
         return 
@@ -226,8 +240,10 @@ function Velocity:ExecuteClickAction()
         local targetCFrame = CFrame.new(hitPos + Vector3.new(0, 3, 0))
 
         if not self.State.TravelMode then
+            -- Instant Direct TP
             hrp.CFrame = targetCFrame
         else
+            -- Safe Phasing Travel Mode
             self.State.IsTravelling = true
             self.State.AbortTravel = false
             
@@ -236,7 +252,7 @@ function Velocity:ExecuteClickAction()
             local maxAllowedTime = estimatedTime + 5 
             local startTime = os.clock()
             
-            -- Cache collisions to restore them later (The Map Fall Fix)
+            -- Cache collisions to restore them perfectly after travelling
             local travelCollisions = {}
             for _, part in ipairs(GetCharacter():GetDescendants()) do
                 if part:IsA("BasePart") and part.CanCollide then
@@ -244,6 +260,7 @@ function Velocity:ExecuteClickAction()
                 end
             end
             
+            -- Phase through walls loop
             local travelNoclip = RunService.Stepped:Connect(function()
                 for _, part in ipairs(travelCollisions) do
                     if part and part.Parent then part.CanCollide = false end
@@ -252,24 +269,28 @@ function Velocity:ExecuteClickAction()
             
             local travelConnection
             
-            -- Safe cleanup function
+            -- Clean End function to prevent map falling
             local function EndTravel()
                 if travelConnection then travelConnection:Disconnect() end
                 if travelNoclip then travelNoclip:Disconnect() end
                 
-                -- Force collisions back to normal so the player doesn't fall through the floor
+                -- Force parts back to solid
                 for _, part in ipairs(travelCollisions) do
                     if part and part.Parent then part.CanCollide = true end
                 end
                 
                 self.State.IsTravelling = false
                 self.State.AbortTravel = false
+                
+                -- Clear remaining velocity so you drop cleanly
+                local currentHrp = GetRootPart()
+                if currentHrp then currentHrp.AssemblyLinearVelocity = Vector3.new(0,0,0) end
             end
             
+            -- The Travel Math Loop
             travelConnection = RunService.Heartbeat:Connect(function(deltaTime)
                 local currentHrp = GetRootPart()
                 
-                -- Failsafes: Player Died or User Pressed Abort
                 if not currentHrp or self.State.AbortTravel then 
                     EndTravel()
                     return
@@ -277,16 +298,14 @@ function Velocity:ExecuteClickAction()
 
                 local currentDist = (currentHrp.Position - targetCFrame.Position).Magnitude
                 
-                -- Failsafes: Took too long or Destination Reached
                 if (os.clock() - startTime) > maxAllowedTime or currentDist <= 2 then
                     EndTravel()
                     return
                 end
                 
-                -- Move smoothly and kill gravity to stop stuttering
                 local travelDir = (targetCFrame.Position - currentHrp.Position).Unit
                 currentHrp.CFrame += travelDir * (self.Config.TravelSpeed * deltaTime)
-                currentHrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+                currentHrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0) -- Freezes gravity stuttering
             end)
         end
     end
