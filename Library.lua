@@ -1,4 +1,4 @@
--- Velocity by Vhyse | v1.4
+-- Velocity by Vhyse | v1.5
 
 local Velocity = {
     State = {
@@ -8,6 +8,7 @@ local Velocity = {
         CFrameWalk = false,
         TravelMode = false,
         IsTravelling = false,
+        AbortTravel = false, -- NEW: Flag to cancel mid-travel
         ModifySpeed = false,
         ModifyJump = false
     },
@@ -75,10 +76,8 @@ end)
 -- ========================================================================= --
 --                            STATE MODIFIERS                                --
 -- ========================================================================= --
-
 function Velocity:ToggleSpeedModifier(state)
     self.State.ModifySpeed = state
-    -- Revert to normal speed when turned off
     if not state then
         local hum = GetHumanoid()
         if hum then hum.WalkSpeed = 16 end
@@ -87,7 +86,6 @@ end
 
 function Velocity:ToggleJumpModifier(state)
     self.State.ModifyJump = state
-    -- Revert to normal jump when turned off
     if not state then
         local hum = GetHumanoid()
         if hum then 
@@ -125,7 +123,7 @@ function Velocity:ToggleNoclip(state)
     end
 end
 
--- [ FLY (Reverted to Original Math) ] --
+-- [ FLY ] --
 function Velocity:ToggleFly(state)
     self.State.Fly = state
     local hrp = GetRootPart()
@@ -207,9 +205,14 @@ end)
 
 -- [ CLICK TELEPORT / TRAVEL ] --
 function Velocity:ExecuteClickAction()
-    if self.State.IsTravelling then return end 
     local hrp = GetRootPart()
     if not hrp then return end
+
+    -- NEW: Abort Travel if the user presses the keybind while already travelling
+    if self.State.IsTravelling then 
+        self.State.AbortTravel = true
+        return 
+    end
 
     local unitRay = Camera:ScreenPointToRay(Mouse.X, Mouse.Y)
     local rayParams = RaycastParams.new()
@@ -226,40 +229,63 @@ function Velocity:ExecuteClickAction()
             hrp.CFrame = targetCFrame
         else
             self.State.IsTravelling = true
+            self.State.AbortTravel = false
+            
             local distance = (hrp.Position - targetCFrame.Position).Magnitude
             local estimatedTime = distance / self.Config.TravelSpeed
             local maxAllowedTime = estimatedTime + 5 
             local startTime = os.clock()
             
+            -- Cache collisions to restore them later (The Map Fall Fix)
+            local travelCollisions = {}
+            for _, part in ipairs(GetCharacter():GetDescendants()) do
+                if part:IsA("BasePart") and part.CanCollide then
+                    table.insert(travelCollisions, part)
+                end
+            end
+            
             local travelNoclip = RunService.Stepped:Connect(function()
-                for _, part in ipairs(GetCharacter():GetDescendants()) do
-                    if part:IsA("BasePart") then part.CanCollide = false end
+                for _, part in ipairs(travelCollisions) do
+                    if part and part.Parent then part.CanCollide = false end
                 end
             end)
             
             local travelConnection
+            
+            -- Safe cleanup function
+            local function EndTravel()
+                if travelConnection then travelConnection:Disconnect() end
+                if travelNoclip then travelNoclip:Disconnect() end
+                
+                -- Force collisions back to normal so the player doesn't fall through the floor
+                for _, part in ipairs(travelCollisions) do
+                    if part and part.Parent then part.CanCollide = true end
+                end
+                
+                self.State.IsTravelling = false
+                self.State.AbortTravel = false
+            end
+            
             travelConnection = RunService.Heartbeat:Connect(function(deltaTime)
                 local currentHrp = GetRootPart()
-                if not currentHrp then 
-                    travelConnection:Disconnect()
-                    travelNoclip:Disconnect()
-                    self.State.IsTravelling = false
+                
+                -- Failsafes: Player Died or User Pressed Abort
+                if not currentHrp or self.State.AbortTravel then 
+                    EndTravel()
                     return
                 end
 
                 local currentDist = (currentHrp.Position - targetCFrame.Position).Magnitude
                 
+                -- Failsafes: Took too long or Destination Reached
                 if (os.clock() - startTime) > maxAllowedTime or currentDist <= 2 then
-                    travelConnection:Disconnect()
-                    travelNoclip:Disconnect()
-                    self.State.IsTravelling = false
+                    EndTravel()
                     return
                 end
                 
+                -- Move smoothly and kill gravity to stop stuttering
                 local travelDir = (targetCFrame.Position - currentHrp.Position).Unit
                 currentHrp.CFrame += travelDir * (self.Config.TravelSpeed * deltaTime)
-                
-                -- THE FIX: Kill vertical velocity (gravity) to stop stuttering
                 currentHrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
             end)
         end
