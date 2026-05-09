@@ -1,6 +1,5 @@
 -- ========================================================================= --
---                   VELOCITY v1.6 API SHOWCASE SCRIPT                       --
---                          (Full Keybind Update)                            --
+--                   VELOCITY v1.7 API SHOWCASE SCRIPT                       --
 -- ========================================================================= --
 
 -- [ 1. INITIALIZE THE ENGINE ]
