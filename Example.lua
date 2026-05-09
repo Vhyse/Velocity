@@ -1,5 +1,6 @@
 -- ========================================================================= --
 --                   VELOCITY v1.6 API SHOWCASE SCRIPT                       --
+--                          (Full Keybind Update)                            --
 -- ========================================================================= --
 
 -- [ 1. INITIALIZE THE ENGINE ]
@@ -12,7 +13,6 @@ if not success then
 end
 
 -- [ 2. CONFIGURE SPEEDS & VALUES ]
--- Covers all 6 configurable values in the engine
 Velocity.Config.WalkSpeed = 75
 Velocity.Config.JumpHeight = 100
 Velocity.Config.FlySpeed = 150
@@ -20,47 +20,51 @@ Velocity.Config.CFrameSpeed = 120
 Velocity.Config.BhopSpeed = 130
 Velocity.Config.TravelSpeed = 250
 
--- [ 3. STANDARD MODIFIERS ]
-Velocity:ToggleSpeedModifier(true)
-Velocity:ToggleJumpModifier(true)
-print("[ Velocity ] Speed and Jump modifiers are now ACTIVE.")
+-- [ 3. BINDING ADVANCED PHYSICS ]
 
--- [ 4. BINDING ADVANCED PHYSICS ]
+-- WalkSpeed Bypass (Toggle with 'Z')
+Velocity:Bind(Enum.KeyCode.Z, function()
+    local newState = not Velocity.State.ModifySpeed
+    Velocity:ToggleSpeedModifier(newState)
+    print("[ Velocity ] Speed Modifier state: " .. tostring(newState))
+end)
+
+-- JumpHeight Bypass (Toggle with 'X')
+Velocity:Bind(Enum.KeyCode.X, function()
+    local newState = not Velocity.State.ModifyJump
+    Velocity:ToggleJumpModifier(newState)
+    print("[ Velocity ] Jump Modifier state: " .. tostring(newState))
+end)
 
 -- Noclip (Toggle with 'N')
-local noclipActive = false
 Velocity:Bind(Enum.KeyCode.N, function()
-    noclipActive = not noclipActive
-    Velocity:ToggleNoclip(noclipActive)
-    print("[ Velocity ] Noclip state: " .. tostring(noclipActive))
+    local newState = not Velocity.State.Noclip
+    Velocity:ToggleNoclip(newState)
+    print("[ Velocity ] Noclip state: " .. tostring(newState))
 end)
 
 -- Vector Flight (Toggle with 'F')
-local flightActive = false
 Velocity:Bind(Enum.KeyCode.F, function()
-    flightActive = not flightActive
-    Velocity:ToggleFly(flightActive)
-    print("[ Velocity ] Flight state: " .. tostring(flightActive))
+    local newState = not Velocity.State.Fly
+    Velocity:ToggleFly(newState)
+    print("[ Velocity ] Flight state: " .. tostring(newState))
 end)
 
 -- CFrame Walk Bypass (Toggle with 'C')
-local cframeActive = false
 Velocity:Bind(Enum.KeyCode.C, function()
-    cframeActive = not cframeActive
-    Velocity.State.CFrameWalk = cframeActive
-    print("[ Velocity ] CFrame Walk state: " .. tostring(cframeActive))
+    local newState = not Velocity.State.CFrameWalk
+    Velocity.State.CFrameWalk = newState
+    print("[ Velocity ] CFrame Walk state: " .. tostring(newState))
 end)
 
--- Bunny Hop Bypass (Toggle with 'B') - ADDED
-local bhopActive = false
+-- Bunny Hop Bypass (Toggle with 'B')
 Velocity:Bind(Enum.KeyCode.B, function()
-    bhopActive = not bhopActive
-    Velocity.State.Bhop = bhopActive
-    print("[ Velocity ] Bunny Hop state: " .. tostring(bhopActive))
+    local newState = not Velocity.State.Bhop
+    Velocity.State.Bhop = newState
+    print("[ Velocity ] Bunny Hop state: " .. tostring(newState))
 end)
 
--- [ 5. TELEPORTATION / TRAVEL ]
--- Toggle TravelMode (True = Phasing / False = Instant TP)
+-- [ 4. TELEPORTATION / TRAVEL ]
 Velocity.State.TravelMode = true 
 
 Velocity:Bind(Enum.KeyCode.T, function()
@@ -68,4 +72,12 @@ Velocity:Bind(Enum.KeyCode.T, function()
     print("[ Velocity ] Traveling to cursor position...")
 end)
 
-print("[ Velocity Showcase ] Fully loaded. Binds: N (Noclip), F (Flight), C (CFrame), B (Bhop), T (Travel).")
+-- [ 5. UNLOAD ENGINE ]
+-- Press 'Delete' to wipe the engine from memory and restore vanilla physics
+Velocity:Bind(Enum.KeyCode.Delete, function()
+    Velocity:Unload()
+    print("[ Velocity ] Engine completely unloaded. Vanilla physics restored.")
+end)
+
+print("[ Velocity Showcase ] Fully loaded.")
+print("[ Binds ] Z (Speed), X (Jump), N (Noclip), F (Flight), C (CFrame), B (Bhop), T (Travel), DEL (Unload)")
