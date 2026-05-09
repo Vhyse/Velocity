@@ -1,4 +1,4 @@
--- Velocity by Vhyse | v1.8
+-- Velocity by Vhyse | v1.9
 
 local Velocity = {
     -- Toggle States
@@ -11,7 +11,8 @@ local Velocity = {
         IsTravelling = false,
         AbortTravel = false,
         ModifySpeed = false,
-        ModifyJump = false
+        ModifyJump = false,
+        AirJump = false -- [ NEW FEATURE ]
     },
     
     -- Active Configurations
@@ -106,6 +107,31 @@ end
 -- ========================================================================= --
 --                            ADVANCED FEATURES                              --
 -- ========================================================================= --
+
+-- [ AIR JUMP (Mid-Air Multi Jump) ] --
+function Velocity:ToggleAirJump(state)
+    self.State.AirJump = state
+    
+    if state then
+        if self.Connections.AirJump then self.Connections.AirJump:Disconnect() end
+        self.Connections.AirJump = UserInputService.InputBegan:Connect(function(input, gameProcessed)
+            if gameProcessed then return end
+            
+            if input.KeyCode == Enum.KeyCode.Space then
+                local hum = GetHumanoid()
+                -- Check if the player is actually falling or in the air before forcing a jump
+                if hum and (hum:GetState() == Enum.HumanoidStateType.Freefall or hum.FloorMaterial == Enum.Material.Air) then
+                    hum:ChangeState(Enum.HumanoidStateType.Jumping)
+                end
+            end
+        end)
+    else
+        if self.Connections.AirJump then 
+            self.Connections.AirJump:Disconnect() 
+            self.Connections.AirJump = nil
+        end
+    end
+end
 
 -- [ NOCLIP ] --
 function Velocity:ToggleNoclip(state)
