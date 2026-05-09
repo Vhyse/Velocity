@@ -1,5 +1,5 @@
 -- ========================================================================= --
---                   VELOCITY v1.8 API SHOWCASE SCRIPT                       --
+--                   VELOCITY v1.9 API SHOWCASE SCRIPT                       --
 -- ========================================================================= --
 
 -- [ 1. INITIALIZE THE ENGINE ]
@@ -33,6 +33,13 @@ Velocity:Bind(Enum.KeyCode.X, function()
     local newState = not Velocity.State.ModifyJump
     Velocity:ToggleJumpModifier(newState)
     print("[ Velocity ] Jump Modifier state: " .. tostring(newState))
+end)
+
+-- Air Jump (Toggle with 'J')
+Velocity:Bind(Enum.KeyCode.J, function()
+    local newState = not Velocity.State.AirJump
+    Velocity:ToggleAirJump(newState)
+    print("[ Velocity ] Air Jump state: " .. tostring(newState))
 end)
 
 -- Noclip (Toggle with 'N')
@@ -79,4 +86,4 @@ Velocity:Bind(Enum.KeyCode.Delete, function()
 end)
 
 print("[ Velocity Showcase ] Fully loaded.")
-print("[ Binds ] Z (Speed), X (Jump), N (Noclip), F (Flight), C (CFrame), B (Bhop), T (Travel), DEL (Unload)")
+print("[ Binds ] Z (Speed), X (Jump), J (Air Jump), N (Noclip), F (Flight), C (CFrame), B (Bhop), T (Travel), DEL (Unload)")
