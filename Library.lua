@@ -1,4 +1,4 @@
--- Velocity by Vhyse | v1.7
+-- Velocity by Vhyse | v1.8
 
 local Velocity = {
     -- Toggle States
@@ -131,40 +131,58 @@ function Velocity:ToggleNoclip(state)
     end
 end
 
--- [ FLY ] --
+-- [ FLY (Upgraded Logic) ] --
 function Velocity:ToggleFly(state)
     self.State.Fly = state
     local hrp = GetRootPart()
-    if not hrp then return end
+    local hum = GetHumanoid()
+    if not hrp or not hum then return end
 
     if state then
+        -- Add BodyGyro for rotation locking
+        local bg = Instance.new("BodyGyro")
+        bg.Name = "VelocityFlyBG"
+        bg.P = 9e4
+        bg.MaxTorque = Vector3.new(9e9, 9e9, 9e9)
+        bg.CFrame = hrp.CFrame
+        bg.Parent = hrp
+
+        -- Add BodyVelocity for movement
         local bv = Instance.new("BodyVelocity")
-        bv.Name = "VelocityFly"
-        bv.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
+        bv.Name = "VelocityFlyBV"
+        bv.MaxForce = Vector3.new(9e9, 9e9, 9e9)
         bv.Velocity = Vector3.new(0, 0, 0)
         bv.Parent = hrp
+
+        -- Freeze animations/physics state
+        hum.PlatformStand = true
         
         if self.Connections.Fly then self.Connections.Fly:Disconnect() end
-        self.Connections.Fly = RunService.RenderStepped:Connect(function()
+        self.Connections.Fly = RunService.Heartbeat:Connect(function()
             local currentHrp = GetRootPart()
             if not currentHrp then return end
             
-            local moveVector = Vector3.new(0, 0, 0)
-            if UserInputService:IsKeyDown(Enum.KeyCode.W) then moveVector += Camera.CFrame.LookVector end
-            if UserInputService:IsKeyDown(Enum.KeyCode.S) then moveVector -= Camera.CFrame.LookVector end
-            if UserInputService:IsKeyDown(Enum.KeyCode.A) then moveVector -= Camera.CFrame.RightVector end
-            if UserInputService:IsKeyDown(Enum.KeyCode.D) then moveVector += Camera.CFrame.RightVector end
-            if UserInputService:IsKeyDown(Enum.KeyCode.E) then moveVector += Vector3.new(0, 1, 0) end
-            if UserInputService:IsKeyDown(Enum.KeyCode.Q) then moveVector -= Vector3.new(0, 1, 0) end
+            local direction = Vector3.new(0, 0, 0)
+            if UserInputService:IsKeyDown(Enum.KeyCode.W) then direction = direction + Camera.CFrame.LookVector end
+            if UserInputService:IsKeyDown(Enum.KeyCode.S) then direction = direction - Camera.CFrame.LookVector end
+            if UserInputService:IsKeyDown(Enum.KeyCode.A) then direction = direction - Camera.CFrame.RightVector end
+            if UserInputService:IsKeyDown(Enum.KeyCode.D) then direction = direction + Camera.CFrame.RightVector end
+            if UserInputService:IsKeyDown(Enum.KeyCode.E) then direction = direction + Vector3.new(0, 1, 0) end
+            if UserInputService:IsKeyDown(Enum.KeyCode.Q) then direction = direction - Vector3.new(0, 1, 0) end
 
-            if moveVector.Magnitude > 0 then moveVector = moveVector.Unit end
+            local activeBv = currentHrp:FindFirstChild("VelocityFlyBV")
+            local activeBg = currentHrp:FindFirstChild("VelocityFlyBG")
             
-            local activeBv = currentHrp:FindFirstChild("VelocityFly")
-            if activeBv then activeBv.Velocity = moveVector * self.Config.FlySpeed end
+            if activeBv and activeBg then 
+                activeBv.Velocity = direction * self.Config.FlySpeed
+                activeBg.CFrame = Camera.CFrame
+            end
         end)
     else
         if self.Connections.Fly then self.Connections.Fly:Disconnect() end
-        if hrp:FindFirstChild("VelocityFly") then hrp.VelocityFly:Destroy() end
+        if hrp:FindFirstChild("VelocityFlyBV") then hrp.VelocityFlyBV:Destroy() end
+        if hrp:FindFirstChild("VelocityFlyBG") then hrp.VelocityFlyBG:Destroy() end
+        if hum then hum.PlatformStand = false end
     end
 end
 
@@ -314,6 +332,7 @@ function Velocity:Unload()
         hum.UseJumpPower = true
         hum.JumpPower = 50
         hum.JumpHeight = 7.2
+        hum.PlatformStand = false -- Ensures they don't get stuck hovering
     end
     
     -- 4. Clean up map collisions (if Noclip or Travel was active)
@@ -322,11 +341,14 @@ function Velocity:Unload()
     end
     self.OriginalCollisions = {}
     
-    -- 5. Destroy injected objects (Flight BodyVelocity)
+    -- 5. Destroy injected objects (Flight BodyVelocity & BodyGyro)
     local hrp = GetRootPart()
     if hrp then
-        local activeBv = hrp:FindFirstChild("VelocityFly")
+        local activeBv = hrp:FindFirstChild("VelocityFlyBV")
         if activeBv then activeBv:Destroy() end
+        local activeBg = hrp:FindFirstChild("VelocityFlyBG")
+        if activeBg then activeBg:Destroy() end
+        
         hrp.AssemblyLinearVelocity = Vector3.new(0,0,0)
     end
     
