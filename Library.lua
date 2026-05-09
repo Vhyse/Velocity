@@ -40,20 +40,6 @@ local Camera = Workspace.CurrentCamera
 local Mouse = LocalPlayer:GetMouse()
 
 -- ========================================================================= --
---                            UNIVERSAL KEYBINDS                             --
--- ========================================================================= --
-function Velocity:Bind(keyCode, callback)
-    self.Binds[keyCode] = callback
-end
-
-UserInputService.InputBegan:Connect(function(input, gameProcessed)
-    if gameProcessed then return end
-    if Velocity.Binds[input.KeyCode] then
-        Velocity.Binds[input.KeyCode]()
-    end
-end)
-
--- ========================================================================= --
 --                            UTILITY FUNCTIONS                              --
 -- ========================================================================= --
 local function GetCharacter()
@@ -69,17 +55,29 @@ local function GetHumanoid()
 end
 
 -- ========================================================================= --
+--                            UNIVERSAL KEYBINDS                             --
+-- ========================================================================= --
+function Velocity:Bind(keyCode, callback)
+    self.Binds[keyCode] = callback
+end
+
+-- Stored in Connections so it can be destroyed during Unload
+Velocity.Connections.InputListener = UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if gameProcessed then return end
+    if Velocity.Binds[input.KeyCode] then
+        Velocity.Binds[input.KeyCode]()
+    end
+end)
+
+-- ========================================================================= --
 --                            DEATH / RESPAWN HOOK                           --
 -- ========================================================================= --
-LocalPlayer.CharacterAdded:Connect(function(newChar)
+Velocity.Connections.RespawnHook = LocalPlayer.CharacterAdded:Connect(function(newChar)
     newChar:WaitForChild("HumanoidRootPart", 5)
-    task.wait(0.2) -- Give physics engine a moment to load the body
+    task.wait(0.2) 
     
-    -- Re-apply physics states
     if Velocity.State.Noclip then Velocity:ToggleNoclip(true) end
     if Velocity.State.Fly then Velocity:ToggleFly(true) end
-    
-    -- Speed and Jump are handled natively by the Heartbeat loop
 end)
 
 -- ========================================================================= --
@@ -98,7 +96,6 @@ function Velocity:ToggleJumpModifier(state)
     if not state then
         local hum = GetHumanoid()
         if hum then 
-            -- Revert to Standard Roblox Vanilla Defaults
             hum.UseJumpPower = true
             hum.JumpPower = 50 
             hum.JumpHeight = 7.2 
@@ -177,7 +174,6 @@ Velocity.Connections.PhysicsLoop = RunService.Heartbeat:Connect(function(deltaTi
     local hum = GetHumanoid()
     if not hrp or not hum then return end
 
-    -- Enforce standard modifiers against game anti-cheats
     if Velocity.State.ModifySpeed then hum.WalkSpeed = Velocity.Config.WalkSpeed end
     if Velocity.State.ModifyJump then 
         hum.UseJumpPower = false
@@ -190,7 +186,6 @@ Velocity.Connections.PhysicsLoop = RunService.Heartbeat:Connect(function(deltaTi
     rayParams.FilterType = Enum.RaycastFilterType.Exclude
 
     if moveDir.Magnitude > 0 then
-        -- CFrame Walk Bypass
         if Velocity.State.CFrameWalk and not Velocity.State.Bhop then
             local speedDiff = Velocity.Config.CFrameSpeed - hum.WalkSpeed
             if speedDiff > 0 then
@@ -200,7 +195,6 @@ Velocity.Connections.PhysicsLoop = RunService.Heartbeat:Connect(function(deltaTi
             end
         end
 
-        -- Bunny Hop
         if Velocity.State.Bhop then
             if UserInputService:IsKeyDown(Enum.KeyCode.Space) then
                 if hum.FloorMaterial ~= Enum.Material.Air then
@@ -222,7 +216,6 @@ function Velocity:ExecuteClickAction()
     local hrp = GetRootPart()
     if not hrp then return end
 
-    -- Abort Travel if user presses bind mid-flight
     if self.State.IsTravelling then 
         self.State.AbortTravel = true
         return 
@@ -240,10 +233,8 @@ function Velocity:ExecuteClickAction()
         local targetCFrame = CFrame.new(hitPos + Vector3.new(0, 3, 0))
 
         if not self.State.TravelMode then
-            -- Instant Direct TP
             hrp.CFrame = targetCFrame
         else
-            -- Safe Phasing Travel Mode
             self.State.IsTravelling = true
             self.State.AbortTravel = false
             
@@ -252,7 +243,6 @@ function Velocity:ExecuteClickAction()
             local maxAllowedTime = estimatedTime + 5 
             local startTime = os.clock()
             
-            -- Cache collisions to restore them perfectly after travelling
             local travelCollisions = {}
             for _, part in ipairs(GetCharacter():GetDescendants()) do
                 if part:IsA("BasePart") and part.CanCollide then
@@ -260,21 +250,16 @@ function Velocity:ExecuteClickAction()
                 end
             end
             
-            -- Phase through walls loop
-            local travelNoclip = RunService.Stepped:Connect(function()
+            self.Connections.TravelNoclip = RunService.Stepped:Connect(function()
                 for _, part in ipairs(travelCollisions) do
                     if part and part.Parent then part.CanCollide = false end
                 end
             end)
             
-            local travelConnection
-            
-            -- Clean End function to prevent map falling
             local function EndTravel()
-                if travelConnection then travelConnection:Disconnect() end
-                if travelNoclip then travelNoclip:Disconnect() end
+                if self.Connections.TravelLoop then self.Connections.TravelLoop:Disconnect() end
+                if self.Connections.TravelNoclip then self.Connections.TravelNoclip:Disconnect() end
                 
-                -- Force parts back to solid
                 for _, part in ipairs(travelCollisions) do
                     if part and part.Parent then part.CanCollide = true end
                 end
@@ -282,13 +267,11 @@ function Velocity:ExecuteClickAction()
                 self.State.IsTravelling = false
                 self.State.AbortTravel = false
                 
-                -- Clear remaining velocity so you drop cleanly
                 local currentHrp = GetRootPart()
                 if currentHrp then currentHrp.AssemblyLinearVelocity = Vector3.new(0,0,0) end
             end
             
-            -- The Travel Math Loop
-            travelConnection = RunService.Heartbeat:Connect(function(deltaTime)
+            self.Connections.TravelLoop = RunService.Heartbeat:Connect(function(deltaTime)
                 local currentHrp = GetRootPart()
                 
                 if not currentHrp or self.State.AbortTravel then 
@@ -305,9 +288,51 @@ function Velocity:ExecuteClickAction()
                 
                 local travelDir = (targetCFrame.Position - currentHrp.Position).Unit
                 currentHrp.CFrame += travelDir * (self.Config.TravelSpeed * deltaTime)
-                currentHrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0) -- Freezes gravity stuttering
+                currentHrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
             end)
         end
+    end
+end
+
+-- ========================================================================= --
+--                            DESTRUCTION API                                --
+-- ========================================================================= --
+function Velocity:Unload()
+    -- 1. Disconnect all engine loops and events
+    for name, connection in pairs(self.Connections) do
+        if connection then connection:Disconnect() end
+    end
+    self.Connections = {}
+    
+    -- 2. Wipe custom keybinds
+    self.Binds = {}
+    
+    -- 3. Restore Vanilla Character Physics
+    local hum = GetHumanoid()
+    if hum then
+        hum.WalkSpeed = 16
+        hum.UseJumpPower = true
+        hum.JumpPower = 50
+        hum.JumpHeight = 7.2
+    end
+    
+    -- 4. Clean up map collisions (if Noclip or Travel was active)
+    for _, part in ipairs(self.OriginalCollisions) do
+        if part and part.Parent then part.CanCollide = true end
+    end
+    self.OriginalCollisions = {}
+    
+    -- 5. Destroy injected objects (Flight BodyVelocity)
+    local hrp = GetRootPart()
+    if hrp then
+        local activeBv = hrp:FindFirstChild("VelocityFly")
+        if activeBv then activeBv:Destroy() end
+        hrp.AssemblyLinearVelocity = Vector3.new(0,0,0)
+    end
+    
+    -- 6. Reset Internal State memory
+    for key, _ in pairs(self.State) do
+        self.State[key] = false
     end
 end
 
