@@ -1,4 +1,4 @@
--- Velocity by Vhyse | v1.6
+-- Velocity by Vhyse | v1.7
 
 local Velocity = {
     -- Toggle States
