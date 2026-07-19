@@ -1,7 +1,6 @@
--- Velocity by Vhyse | v1.9
+-- Velocity by Vhyse | v2.0
 
 local Velocity = {
-    -- Toggle States
     State = {
         Fly = false,
         Noclip = false,
@@ -12,10 +11,9 @@ local Velocity = {
         AbortTravel = false,
         ModifySpeed = false,
         ModifyJump = false,
-        AirJump = false -- [ NEW FEATURE ]
+        AirJump = false
     },
     
-    -- Active Configurations
     Config = {
         FlySpeed = 50,
         BhopSpeed = 50,
@@ -25,10 +23,10 @@ local Velocity = {
         JumpHeight = 50
     },
     
-    -- Internal Memory
     Connections = {},
     Binds = {},
-    OriginalCollisions = {}
+    OriginalCollisions = {},
+    RayParams = RaycastParams.new()
 }
 
 local Players = game:GetService("Players")
@@ -40,29 +38,26 @@ local LocalPlayer = Players.LocalPlayer
 local Camera = Workspace.CurrentCamera
 local Mouse = LocalPlayer:GetMouse()
 
--- ========================================================================= --
---                            UTILITY FUNCTIONS                              --
--- ========================================================================= --
+Velocity.RayParams.FilterType = Enum.RaycastFilterType.Exclude
+
 local function GetCharacter()
-    return LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+    return LocalPlayer.Character
 end
 
 local function GetRootPart()
-    return GetCharacter():FindFirstChild("HumanoidRootPart")
+    local char = GetCharacter()
+    return char and char:FindFirstChild("HumanoidRootPart")
 end
 
 local function GetHumanoid()
-    return GetCharacter():FindFirstChildOfClass("Humanoid")
+    local char = GetCharacter()
+    return char and char:FindFirstChildOfClass("Humanoid")
 end
 
--- ========================================================================= --
---                            UNIVERSAL KEYBINDS                             --
--- ========================================================================= --
 function Velocity:Bind(keyCode, callback)
     self.Binds[keyCode] = callback
 end
 
--- Stored in Connections so it can be destroyed during Unload
 Velocity.Connections.InputListener = UserInputService.InputBegan:Connect(function(input, gameProcessed)
     if gameProcessed then return end
     if Velocity.Binds[input.KeyCode] then
@@ -70,20 +65,22 @@ Velocity.Connections.InputListener = UserInputService.InputBegan:Connect(functio
     end
 end)
 
--- ========================================================================= --
---                            DEATH / RESPAWN HOOK                           --
--- ========================================================================= --
 Velocity.Connections.RespawnHook = LocalPlayer.CharacterAdded:Connect(function(newChar)
-    newChar:WaitForChild("HumanoidRootPart", 5)
-    task.wait(0.2) 
+    Velocity.RayParams.FilterDescendantsInstances = {newChar}
     
-    if Velocity.State.Noclip then Velocity:ToggleNoclip(true) end
-    if Velocity.State.Fly then Velocity:ToggleFly(true) end
+    task.spawn(function()
+        newChar:WaitForChild("HumanoidRootPart", 5)
+        task.wait(0.2) 
+        
+        if Velocity.State.Noclip then Velocity:ToggleNoclip(true) end
+        if Velocity.State.Fly then Velocity:ToggleFly(true) end
+    end)
 end)
 
--- ========================================================================= --
---                            STATE MODIFIERS                                --
--- ========================================================================= --
+if LocalPlayer.Character then
+    Velocity.RayParams.FilterDescendantsInstances = {LocalPlayer.Character}
+end
+
 function Velocity:ToggleSpeedModifier(state)
     self.State.ModifySpeed = state
     if not state then
@@ -104,11 +101,6 @@ function Velocity:ToggleJumpModifier(state)
     end
 end
 
--- ========================================================================= --
---                            ADVANCED FEATURES                              --
--- ========================================================================= --
-
--- [ AIR JUMP (Mid-Air Multi Jump) ] --
 function Velocity:ToggleAirJump(state)
     self.State.AirJump = state
     
@@ -119,7 +111,6 @@ function Velocity:ToggleAirJump(state)
             
             if input.KeyCode == Enum.KeyCode.Space then
                 local hum = GetHumanoid()
-                -- Check if the player is actually falling or in the air before forcing a jump
                 if hum and (hum:GetState() == Enum.HumanoidStateType.Freefall or hum.FloorMaterial == Enum.Material.Air) then
                     hum:ChangeState(Enum.HumanoidStateType.Jumping)
                 end
@@ -133,54 +124,60 @@ function Velocity:ToggleAirJump(state)
     end
 end
 
--- [ NOCLIP ] --
 function Velocity:ToggleNoclip(state)
     self.State.Noclip = state
     if state then
-        self.OriginalCollisions = {}
-        for _, part in ipairs(GetCharacter():GetDescendants()) do
-            if part:IsA("BasePart") and part.CanCollide then
-                table.insert(self.OriginalCollisions, part)
+        table.clear(self.OriginalCollisions)
+        local char = GetCharacter()
+        if char then
+            for _, part in ipairs(char:GetDescendants()) do
+                if part:IsA("BasePart") and part.CanCollide then
+                    table.insert(self.OriginalCollisions, part)
+                end
             end
         end
         if self.Connections.Noclip then self.Connections.Noclip:Disconnect() end
         self.Connections.Noclip = RunService.Stepped:Connect(function()
             for _, part in ipairs(self.OriginalCollisions) do
-                if part and part.Parent then part.CanCollide = false end
+                if part.Parent then part.CanCollide = false end
             end
         end)
     else
         if self.Connections.Noclip then self.Connections.Noclip:Disconnect() end
         for _, part in ipairs(self.OriginalCollisions) do
-            if part and part.Parent then part.CanCollide = true end
+            if part.Parent then part.CanCollide = true end
         end
+        table.clear(self.OriginalCollisions)
     end
 end
 
--- [ FLY (Upgraded Logic) ] --
 function Velocity:ToggleFly(state)
     self.State.Fly = state
     local hrp = GetRootPart()
     local hum = GetHumanoid()
+    
     if not hrp or not hum then return end
 
     if state then
-        -- Add BodyGyro for rotation locking
-        local bg = Instance.new("BodyGyro")
-        bg.Name = "VelocityFlyBG"
-        bg.P = 9e4
-        bg.MaxTorque = Vector3.new(9e9, 9e9, 9e9)
-        bg.CFrame = hrp.CFrame
-        bg.Parent = hrp
+        local att = hrp:FindFirstChild("VelocityFlyAtt") or Instance.new("Attachment")
+        att.Name = "VelocityFlyAtt"
+        att.Parent = hrp
 
-        -- Add BodyVelocity for movement
-        local bv = Instance.new("BodyVelocity")
-        bv.Name = "VelocityFlyBV"
-        bv.MaxForce = Vector3.new(9e9, 9e9, 9e9)
-        bv.Velocity = Vector3.new(0, 0, 0)
-        bv.Parent = hrp
+        local ao = Instance.new("AlignOrientation")
+        ao.Name = "VelocityFlyAO"
+        ao.Attachment0 = att
+        ao.Mode = Enum.OrientationAlignmentMode.OneAttachment
+        ao.RigidityEnabled = true
+        ao.Parent = hrp
 
-        -- Freeze animations/physics state
+        local lv = Instance.new("LinearVelocity")
+        lv.Name = "VelocityFlyLV"
+        lv.Attachment0 = att
+        lv.MaxForce = math.huge
+        lv.VectorVelocity = Vector3.zero
+        lv.RelativeTo = Enum.ActuatorRelativeTo.World
+        lv.Parent = hrp
+
         hum.PlatformStand = true
         
         if self.Connections.Fly then self.Connections.Fly:Disconnect() end
@@ -188,53 +185,58 @@ function Velocity:ToggleFly(state)
             local currentHrp = GetRootPart()
             if not currentHrp then return end
             
-            local direction = Vector3.new(0, 0, 0)
-            if UserInputService:IsKeyDown(Enum.KeyCode.W) then direction = direction + Camera.CFrame.LookVector end
-            if UserInputService:IsKeyDown(Enum.KeyCode.S) then direction = direction - Camera.CFrame.LookVector end
-            if UserInputService:IsKeyDown(Enum.KeyCode.A) then direction = direction - Camera.CFrame.RightVector end
-            if UserInputService:IsKeyDown(Enum.KeyCode.D) then direction = direction + Camera.CFrame.RightVector end
-            if UserInputService:IsKeyDown(Enum.KeyCode.E) then direction = direction + Vector3.new(0, 1, 0) end
-            if UserInputService:IsKeyDown(Enum.KeyCode.Q) then direction = direction - Vector3.new(0, 1, 0) end
+            local direction = Vector3.zero
+            if UserInputService:IsKeyDown(Enum.KeyCode.W) then direction += Camera.CFrame.LookVector end
+            if UserInputService:IsKeyDown(Enum.KeyCode.S) then direction -= Camera.CFrame.LookVector end
+            if UserInputService:IsKeyDown(Enum.KeyCode.A) then direction -= Camera.CFrame.RightVector end
+            if UserInputService:IsKeyDown(Enum.KeyCode.D) then direction += Camera.CFrame.RightVector end
+            if UserInputService:IsKeyDown(Enum.KeyCode.E) then direction += Vector3.yAxis end
+            if UserInputService:IsKeyDown(Enum.KeyCode.Q) then direction -= Vector3.yAxis end
 
-            local activeBv = currentHrp:FindFirstChild("VelocityFlyBV")
-            local activeBg = currentHrp:FindFirstChild("VelocityFlyBG")
+            if direction.Magnitude > 0 then
+                direction = direction.Unit
+            end
+
+            local activeLv = currentHrp:FindFirstChild("VelocityFlyLV")
+            local activeAo = currentHrp:FindFirstChild("VelocityFlyAO")
             
-            if activeBv and activeBg then 
-                activeBv.Velocity = direction * self.Config.FlySpeed
-                activeBg.CFrame = Camera.CFrame
+            if activeLv and activeAo then 
+                activeLv.VectorVelocity = direction * self.Config.FlySpeed
+                activeAo.CFrame = Camera.CFrame
             end
         end)
     else
         if self.Connections.Fly then self.Connections.Fly:Disconnect() end
-        if hrp:FindFirstChild("VelocityFlyBV") then hrp.VelocityFlyBV:Destroy() end
-        if hrp:FindFirstChild("VelocityFlyBG") then hrp.VelocityFlyBG:Destroy() end
+        if hrp:FindFirstChild("VelocityFlyLV") then hrp.VelocityFlyLV:Destroy() end
+        if hrp:FindFirstChild("VelocityFlyAO") then hrp.VelocityFlyAO:Destroy() end
+        if hrp:FindFirstChild("VelocityFlyAtt") then hrp.VelocityFlyAtt:Destroy() end
         if hum then hum.PlatformStand = false end
+        hrp.AssemblyLinearVelocity = Vector3.zero
     end
 end
 
--- [ MASTER PHYSICS LOOP ] --
 Velocity.Connections.PhysicsLoop = RunService.Heartbeat:Connect(function(deltaTime)
     local hrp = GetRootPart()
     local hum = GetHumanoid()
     if not hrp or not hum then return end
 
-    if Velocity.State.ModifySpeed then hum.WalkSpeed = Velocity.Config.WalkSpeed end
-    if Velocity.State.ModifyJump then 
+    if Velocity.State.ModifySpeed and hum.WalkSpeed ~= Velocity.Config.WalkSpeed then 
+        hum.WalkSpeed = Velocity.Config.WalkSpeed 
+    end
+    
+    if Velocity.State.ModifyJump and hum.JumpHeight ~= Velocity.Config.JumpHeight then 
         hum.UseJumpPower = false
         hum.JumpHeight = Velocity.Config.JumpHeight 
     end
 
     local moveDir = hum.MoveDirection
-    local rayParams = RaycastParams.new()
-    rayParams.FilterDescendantsInstances = {GetCharacter()}
-    rayParams.FilterType = Enum.RaycastFilterType.Exclude
 
     if moveDir.Magnitude > 0 then
         if Velocity.State.CFrameWalk and not Velocity.State.Bhop then
             local speedDiff = Velocity.Config.CFrameSpeed - hum.WalkSpeed
             if speedDiff > 0 then
                 local offset = moveDir * (speedDiff * deltaTime)
-                local ray = Workspace:Raycast(hrp.Position, offset, rayParams)
+                local ray = Workspace:Raycast(hrp.Position, offset, Velocity.RayParams)
                 if not ray then hrp.CFrame += offset end 
             end
         end
@@ -247,7 +249,7 @@ Velocity.Connections.PhysicsLoop = RunService.Heartbeat:Connect(function(deltaTi
                 local speedDiff = Velocity.Config.BhopSpeed - hum.WalkSpeed
                 if speedDiff > 0 then
                     local offset = moveDir * (speedDiff * deltaTime)
-                    local ray = Workspace:Raycast(hrp.Position, offset, rayParams)
+                    local ray = Workspace:Raycast(hrp.Position, offset, Velocity.RayParams)
                     if not ray then hrp.CFrame += offset end
                 end
             end
@@ -255,7 +257,6 @@ Velocity.Connections.PhysicsLoop = RunService.Heartbeat:Connect(function(deltaTi
     end
 end)
 
--- [ CLICK TELEPORT / TRAVEL ] --
 function Velocity:ExecuteClickAction()
     local hrp = GetRootPart()
     if not hrp then return end
@@ -266,11 +267,7 @@ function Velocity:ExecuteClickAction()
     end
 
     local unitRay = Camera:ScreenPointToRay(Mouse.X, Mouse.Y)
-    local rayParams = RaycastParams.new()
-    rayParams.FilterDescendantsInstances = {GetCharacter()}
-    rayParams.FilterType = Enum.RaycastFilterType.Exclude
-
-    local rayResult = Workspace:Raycast(unitRay.Origin, unitRay.Direction * 1000, rayParams)
+    local rayResult = Workspace:Raycast(unitRay.Origin, unitRay.Direction * 1000, self.RayParams)
     
     if rayResult then
         local hitPos = rayResult.Position
@@ -288,15 +285,18 @@ function Velocity:ExecuteClickAction()
             local startTime = os.clock()
             
             local travelCollisions = {}
-            for _, part in ipairs(GetCharacter():GetDescendants()) do
-                if part:IsA("BasePart") and part.CanCollide then
-                    table.insert(travelCollisions, part)
+            local char = GetCharacter()
+            if char then
+                for _, part in ipairs(char:GetDescendants()) do
+                    if part:IsA("BasePart") and part.CanCollide then
+                        table.insert(travelCollisions, part)
+                    end
                 end
             end
             
             self.Connections.TravelNoclip = RunService.Stepped:Connect(function()
                 for _, part in ipairs(travelCollisions) do
-                    if part and part.Parent then part.CanCollide = false end
+                    if part.Parent then part.CanCollide = false end
                 end
             end)
             
@@ -305,14 +305,15 @@ function Velocity:ExecuteClickAction()
                 if self.Connections.TravelNoclip then self.Connections.TravelNoclip:Disconnect() end
                 
                 for _, part in ipairs(travelCollisions) do
-                    if part and part.Parent then part.CanCollide = true end
+                    if part.Parent then part.CanCollide = true end
                 end
+                table.clear(travelCollisions)
                 
                 self.State.IsTravelling = false
                 self.State.AbortTravel = false
                 
                 local currentHrp = GetRootPart()
-                if currentHrp then currentHrp.AssemblyLinearVelocity = Vector3.new(0,0,0) end
+                if currentHrp then currentHrp.AssemblyLinearVelocity = Vector3.zero end
             end
             
             self.Connections.TravelLoop = RunService.Heartbeat:Connect(function(deltaTime)
@@ -332,53 +333,47 @@ function Velocity:ExecuteClickAction()
                 
                 local travelDir = (targetCFrame.Position - currentHrp.Position).Unit
                 currentHrp.CFrame += travelDir * (self.Config.TravelSpeed * deltaTime)
-                currentHrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+                currentHrp.AssemblyLinearVelocity = Vector3.zero
             end)
         end
     end
 end
 
--- ========================================================================= --
---                            DESTRUCTION API                                --
--- ========================================================================= --
 function Velocity:Unload()
-    -- 1. Disconnect all engine loops and events
-    for name, connection in pairs(self.Connections) do
-        if connection then connection:Disconnect() end
+    for _, connection in pairs(self.Connections) do
+        if typeof(connection) == "RBXScriptConnection" and connection.Connected then 
+            connection:Disconnect() 
+        end
     end
-    self.Connections = {}
+    table.clear(self.Connections)
+    table.clear(self.Binds)
     
-    -- 2. Wipe custom keybinds
-    self.Binds = {}
-    
-    -- 3. Restore Vanilla Character Physics
     local hum = GetHumanoid()
     if hum then
         hum.WalkSpeed = 16
         hum.UseJumpPower = true
         hum.JumpPower = 50
         hum.JumpHeight = 7.2
-        hum.PlatformStand = false -- Ensures they don't get stuck hovering
+        hum.PlatformStand = false 
     end
     
-    -- 4. Clean up map collisions (if Noclip or Travel was active)
     for _, part in ipairs(self.OriginalCollisions) do
-        if part and part.Parent then part.CanCollide = true end
+        if part.Parent then part.CanCollide = true end
     end
-    self.OriginalCollisions = {}
+    table.clear(self.OriginalCollisions)
     
-    -- 5. Destroy injected objects (Flight BodyVelocity & BodyGyro)
     local hrp = GetRootPart()
     if hrp then
-        local activeBv = hrp:FindFirstChild("VelocityFlyBV")
-        if activeBv then activeBv:Destroy() end
-        local activeBg = hrp:FindFirstChild("VelocityFlyBG")
-        if activeBg then activeBg:Destroy() end
+        local activeLv = hrp:FindFirstChild("VelocityFlyLV")
+        if activeLv then activeLv:Destroy() end
+        local activeAo = hrp:FindFirstChild("VelocityFlyAO")
+        if activeAo then activeAo:Destroy() end
+        local activeAtt = hrp:FindFirstChild("VelocityFlyAtt")
+        if activeAtt then activeAtt:Destroy() end
         
-        hrp.AssemblyLinearVelocity = Vector3.new(0,0,0)
+        hrp.AssemblyLinearVelocity = Vector3.zero
     end
     
-    -- 6. Reset Internal State memory
     for key, _ in pairs(self.State) do
         self.State[key] = false
     end
