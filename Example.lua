@@ -1,6 +1,12 @@
 -- ========================================================================= --
---                   VELOCITY v1.9 API SHOWCASE SCRIPT                       --
+--                   VELOCITY v2.0 API SHOWCASE SCRIPT                       --
 -- ========================================================================= --
+
+-- [ 0. PREVENT DUPLICATE EXECUTIONS ]
+if getgenv().Velocity_ActiveEngine then
+    getgenv().Velocity_ActiveEngine:Unload()
+    print("[ Velocity ] Previous engine instance unloaded.")
+end
 
 -- [ 1. INITIALIZE THE ENGINE ]
 local success, Velocity = pcall(function() 
@@ -10,6 +16,8 @@ end)
 if not success then
     return warn("[ Velocity Showcase ] Critical Error: Failed to load the engine.")
 end
+
+getgenv().Velocity_ActiveEngine = Velocity
 
 -- [ 2. CONFIGURE SPEEDS & VALUES ]
 Velocity.Config.WalkSpeed = 75
@@ -85,5 +93,5 @@ Velocity:Bind(Enum.KeyCode.Delete, function()
     print("[ Velocity ] Engine completely unloaded. Vanilla physics restored.")
 end)
 
-print("[ Velocity Showcase ] Fully loaded.")
+print("[ Velocity Showcase ] v2.0 Fully loaded.")
 print("[ Binds ] Z (Speed), X (Jump), J (Air Jump), N (Noclip), F (Flight), C (CFrame), B (Bhop), T (Travel), DEL (Unload)")
